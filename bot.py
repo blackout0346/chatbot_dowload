@@ -1,50 +1,129 @@
-import logging
-from aiogram import Bot
-from aiogram import Dispatcher
-from aiogram import executor
-from aiogram import types
-import ytttb
-
-api_tok = 'TOKEN'
-
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=api_tok)
-dp = Dispatcher(bot)
-link = ''
+import os
+from pytube import YouTube
+import telebot
+import re
+import time
+from telebot import types
 
 
-@dp.message_handler(commands=['start'])
-async def welcome(message: types.Message):
-    await  message.reply('Пришли ссылку')
+bot = telebot.TeleBot('6437967727:AAHufdo8Ezsbuj7lR74EQn4-trn2voFa6N8')
 
 
-@dp.message_handler()
-async def buttns(message: types.Message):
-    link = message.text
-    kb = [
-        [types.KeyboardButton(text="Video")],
-        [types.KeyboardButton(text="Audio")],
-        [types.KeyboardButton(text="Thumbnail")]
-    ]
-    keyboard = types.ReplyKeyboardMarkup(keyboard=kb)
-    await message.answer('Choose the action', reply_markup=keyboard)
-    return link
+current_directory = os.getcwd()
+
+video_directory = os.path.join(current_directory, 'video')
+
+image = 'https://i.pinimg.com/736x/e4/01/01/e401012cb58bcde4da7912e5e426a1e5.jpg'
 
 
-@dp.message_handler(text='Video')
-async def vids(message: types.Message):
-    await bot.send_video(message.chat.id, open(str(ytttb.send_me_vid(link=link, r='h')), 'rb'))
+if not os.path.exists(video_directory):
+    os.makedirs(video_directory)
+    print(f"[INFO] Папку video найти не удалось, создаю её сам.")
+
+@bot.message_handler(commands=['start', 'help'])
+
+def send_welcome(message):
+    user_id = message.from_user.id
+    user_first_name = message.from_user.first_name
+
+    ms = '''
+Привет! Я <b>бот для скачивания видео</b> из youtube.
+Просто отправь мне ссылку и я всё <b>быстренько</b> сделаю :)
+    '''
+    bot.send_photo(message.chat.id, image, parse_mode='html', caption=ms)
+
+@bot.message_handler(func=lambda message: True)
+def download_video(message):
+    video_path = None  
+
+    try:
+        
+        video_url = message.text
+
+        yt = YouTube(video_url)
 
 
-@dp.message_handler(text='Audio')
-async def audio(message: types.Message):
-    await bot.send_video(message.chat.id, open(str(ytttb.send_me_audio(link))))
+        markup = types.ReplyKeyboardMarkup(row_width=2)
+        item_video = types.KeyboardButton('Видео')
+        item_audio = types.KeyboardButton('Аудио')
+        markup.add(item_video, item_audio)
 
 
-@dp.message_handler(text='Thumbnail')
-async def tmb(message: types.Message):
-    await message.answer(ytttb.send_me_pic(link))
+        msg = bot.send_message(message.chat.id, "Выберите формат загрузки:", reply_markup=markup)
+        bot.register_next_step_handler(msg, process_format_choice, yt)
+
+    except Exception as e:
+        print(f'[INFO] Произошла ошибка: {str(e)}')
+        bot.reply_to(message, f'Произошла ошибка: {str(e)}')
+        if video_path and os.path.exists(video_path):
+            os.remove(video_path)
+
+def process_format_choice(message, yt):
+    try:
+        chat_id = message.chat.id
+        user_choice = message.text.lower()
+
+        if user_choice == 'видео':
+            download_and_send_video(yt, chat_id)
+        elif user_choice == 'аудио':
+            download_and_send_audio(yt, chat_id)
+        else:
+            bot.send_message(chat_id, 'Пожалуйста, выберите формат, используя клавиатуру.')
+
+    except Exception as e:
+        print(f'[INFO] Ошибка при обработке выбора формата: {str(e)}')
+        bot.send_message(chat_id, f'Произошла ошибка: {str(e)}')
 
 
-executor.start_polling(dp, skip_updates=True)
+def download_and_send_video(yt, chat_id):
+    video_path = download_video(yt)
+    send_video(chat_id, video_path)
+
+
+def download_and_send_audio(yt, chat_id):
+    audio_path = download_audio(yt)
+    send_audio(chat_id, audio_path)
+
+
+def download_video(yt):
+    stream = yt.streams.get_highest_resolution()
+    cleaned_title = re.sub(r'[^\w\s.-]', '', yt.title)
+    video_filename = f'{cleaned_title}.mp4'
+    video_path = os.path.join(video_directory, video_filename)
+    stream.download(output_path=video_directory, filename=video_filename)
+    return video_path
+
+
+def download_audio(yt):
+    audio_stream = yt.streams.filter(only_audio=True).first()
+    cleaned_title = re.sub(r'[^\w\s.-]', '', yt.title)
+    audio_filename = f'{cleaned_title}.mp3'
+    audio_path = os.path.join(video_directory, audio_filename)
+    audio_stream.download(output_path=video_directory, filename=audio_filename)
+    return audio_path
+
+
+def send_video(chat_id, video_path):
+    if os.path.exists(video_path):
+        print(f'[INFO] Видео успешно загружено, автоматическое удаление произойдет после отправки видео.')
+        bot.send_message(chat_id, 'Видео было загружено на сервер, оно отправится вам через 15 секунд.')
+        time.sleep(15)
+        bot.send_video(chat_id, video=open(video_path, 'rb'), caption=f'Видео успешно загружено! Держи!')
+        os.remove(video_path)  
+        print(f'[INFO] Видео: {os.path.basename(video_path)}, было удалено с сервера.')
+    else:
+        bot.send_message(chat_id, 'Видео не было загружено.')
+
+
+def send_audio(chat_id, audio_path):
+    if os.path.exists(audio_path):
+        print(f'[INFO] Аудио успешно загружено, автоматическое удаление произойдет после отправки аудио.')
+        bot.send_message(chat_id, 'Аудио было загружено на сервер, оно отправится вам через 15 секунд.')
+        time.sleep(15)
+        bot.send_audio(chat_id, audio=open(audio_path, 'rb'), caption=f'Аудио успешно загружено! Держи!')
+        os.remove(audio_path)  
+        print(f'[INFO] Аудио: {os.path.basename(audio_path)}, было удалено с сервера.')
+    else:
+        bot.send_message(chat_id, 'Аудио не было загружено.')
+
+bot.polling()
