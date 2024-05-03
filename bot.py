@@ -5,58 +5,57 @@ import re
 import time
 from telebot import types
 
-
 bot = telebot.TeleBot('6437967727:AAHufdo8Ezsbuj7lR74EQn4-trn2voFa6N8')
 
-
 current_directory = os.getcwd()
-
 video_directory = os.path.join(current_directory, 'video')
-
 image = 'https://i.pinimg.com/736x/e4/01/01/e401012cb58bcde4da7912e5e426a1e5.jpg'
-
 
 if not os.path.exists(video_directory):
     os.makedirs(video_directory)
-    print(f"[INFO] Папку video найти не удалось, создаю её сам.")
+    print(f"[INFO] Папку video не найдено, создаю её сам.")
 
 @bot.message_handler(commands=['start', 'help'])
-
 def send_welcome(message):
     user_id = message.from_user.id
     user_first_name = message.from_user.first_name
 
     ms = '''
-Привет! Я <b>бот для скачивания видео</b> из youtube.
+Привет! Я <b>бот для скачивания видео</b> из YouTube.
 Просто отправь мне ссылку и я всё <b>быстренько</b> сделаю :)
     '''
     bot.send_photo(message.chat.id, image, parse_mode='html', caption=ms)
 
 @bot.message_handler(func=lambda message: True)
 def download_video(message):
-    video_path = None  
-
+    video_path = None
     try:
-        
         video_url = message.text
-
-        yt = YouTube(video_url)
-
-
-        markup = types.ReplyKeyboardMarkup(row_width=2)
-        item_video = types.KeyboardButton('Видео')
-        item_audio = types.KeyboardButton('Аудио')
-        markup.add(item_video, item_audio)
-
-
-        msg = bot.send_message(message.chat.id, "Выберите формат загрузки:", reply_markup=markup)
-        bot.register_next_step_handler(msg, process_format_choice, yt)
-
+        video_id = extract_video_id(video_url)
+        if video_id:
+            yt = YouTube(f'https://www.youtube.com/watch?v={video_id}')
+            markup = types.ReplyKeyboardMarkup(row_width=2)
+            item_video = types.KeyboardButton('Видео')
+            item_audio = types.KeyboardButton('Аудио')
+            markup.add(item_video, item_audio)
+            msg = bot.send_message(message.chat.id, "Выберите формат загрузки:", reply_markup=markup)
+            bot.register_next_step_handler(msg, process_format_choice, yt)
+        else:
+            bot.send_message(message.chat.id, 'Пожалуйста, отправьте корректную ссылку на видео с YouTube.')
     except Exception as e:
         print(f'[INFO] Произошла ошибка: {str(e)}')
         bot.reply_to(message, f'Произошла ошибка: {str(e)}')
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
+
+def extract_video_id(url):
+    regex = r'(?:v=|\/)([0-9A-Za-z_-]{11})'
+    match = re.search(regex, url)
+    if match:
+        return match.group(1)
+    else:
+        return None
+
 
 def process_format_choice(message, yt):
     try:
@@ -74,25 +73,21 @@ def process_format_choice(message, yt):
         print(f'[INFO] Ошибка при обработке выбора формата: {str(e)}')
         bot.send_message(chat_id, f'Произошла ошибка: {str(e)}')
 
-
 def download_and_send_video(yt, chat_id):
     video_path = download_video(yt)
     send_video(chat_id, video_path)
-
 
 def download_and_send_audio(yt, chat_id):
     audio_path = download_audio(yt)
     send_audio(chat_id, audio_path)
 
-
 def download_video(yt):
-    stream = yt.streams.get_highest_resolution()
+    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
     cleaned_title = re.sub(r'[^\w\s.-]', '', yt.title)
     video_filename = f'{cleaned_title}.mp4'
     video_path = os.path.join(video_directory, video_filename)
     stream.download(output_path=video_directory, filename=video_filename)
     return video_path
-
 
 def download_audio(yt):
     audio_stream = yt.streams.filter(only_audio=True).first()
@@ -102,18 +97,16 @@ def download_audio(yt):
     audio_stream.download(output_path=video_directory, filename=audio_filename)
     return audio_path
 
-
 def send_video(chat_id, video_path):
     if os.path.exists(video_path):
         print(f'[INFO] Видео успешно загружено, автоматическое удаление произойдет после отправки видео.')
         bot.send_message(chat_id, 'Видео было загружено на сервер, оно отправится вам через 15 секунд.')
         time.sleep(15)
         bot.send_video(chat_id, video=open(video_path, 'rb'), caption=f'Видео успешно загружено! Держи!')
-        os.remove(video_path)  
+        os.remove(video_path)
         print(f'[INFO] Видео: {os.path.basename(video_path)}, было удалено с сервера.')
     else:
         bot.send_message(chat_id, 'Видео не было загружено.')
-
 
 def send_audio(chat_id, audio_path):
     if os.path.exists(audio_path):
