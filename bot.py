@@ -6,8 +6,7 @@ import re
 import time
 from telebot import types
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
-from moviepy.editor import VideoFileClip
-
+from moviepy.video.io.VideoFileClip import VideoFileClip
 bot = telebot.TeleBot('6437967727:AAHufdo8Ezsbuj7lR74EQn4-trn2voFa6N8')
 
 current_directory = os.getcwd()
@@ -63,7 +62,7 @@ def process_format_choice(message, yt):
         bot.send_message(chat_id, f'Произошла ошибка: {str(e)}')
 
 def download_video_from_youtube(yt):
-    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+    stream = yt.streams.get_highest_resolution()  # Автоматически берет лучшее качество
     cleaned_title = re.sub(r'[^\w\s.-]', '', yt.title)
     video_filename = f'{cleaned_title}.mp4'
     video_path = os.path.join(video_directory, video_filename)
